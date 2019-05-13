@@ -9,29 +9,33 @@ import numpy as np
 import io
 import os
 
+try:
+    from PIL import Image
+except ImportError:
+    import Image
+import pytesseract
+
 # export GOOGLE_APPLICATION_CREDENTIALS=hanzi-ocr-6187fe679c36.json
 
-# Imports the Google Cloud client library
 from google.cloud import vision
 from google.cloud import translate
 from google.cloud.vision import types
 
-# Instantiates a client
 client = vision.ImageAnnotatorClient()
 translate_client = translate.Client()
 
-def sort_contours(cnts, method="left-to-right"):
+def sort_contours(cnts, method='left-to-right'):
     # initialize the reverse flag and sort index
     reverse = False
     i = 0
 
     # handle if we need to sort in reverse
-    if method == "right-to-left" or method == "bottom-to-top":
+    if method == 'right-to-left' or method == 'bottom-to-top':
         reverse = True
 
     # handle if we are sorting against the y-coordinate rather than
     # the x-coordinate of the bounding box
-    if method == "top-to-bottom" or method == "bottom-to-top":
+    if method == 'top-to-bottom' or method == 'bottom-to-top':
         i = 1
 
     # construct the list of bounding boxes and sort them from top to
@@ -43,6 +47,9 @@ def sort_contours(cnts, method="left-to-right"):
     # return the list of sorted contours and bounding boxes
     return (cnts, boundingBoxes)
 
+'''
+Not really working...
+'''
 def detect_text(path):
     with io.open(path, 'rb') as image_file:
         content = image_file.read()
@@ -52,7 +59,7 @@ def detect_text(path):
 
     response = client.document_text_detection(
         image=image,
-        image_context={"language_hints": ["zh"]})
+        image_context={'language_hints': ['zh']})
 
     annotations = response.text_annotations
 
@@ -66,25 +73,6 @@ def detect_text(path):
     src_lang = detect_language_response['language']
     print('Detected language {} for text {}.'.format(src_lang, text))
 
-    # # if len(annotations) > 0:
-    # #     text = annotations[0].description
-    # # else:
-    # #     text = ''
-    # text = ''
-    # for t in annotations:
-    #     text = t.description
-    # print('Extracted text {} from image ({} chars).'.format(text, len(text)))
-
-    # texts = response.text_annotations
-    # string = ''
-    #
-    # if (len(texts) > 0):
-    #     string =  texts[0].description
-    #
-    # for text in texts:
-    #     string+=' ' + text.description
-
-    # return '$$ ' + string + ' $$'
 
 def box_extraction(img_for_box_extraction_path, cropped_dir_path):
     img = cv2.imread(img_for_box_extraction_path, 0)  # Read the image
@@ -92,7 +80,7 @@ def box_extraction(img_for_box_extraction_path, cropped_dir_path):
                                       cv2.THRESH_BINARY | cv2.THRESH_OTSU)  # Thresholding the image
     img_bin = 255-img_bin  # Invert the image
 
-    # cv2.imwrite("./test/image_bin.jpg",img_bin)
+    # cv2.imwrite('./test/image_bin.jpg',img_bin)
 
     # Defining a kernel length
     kernel_length = np.array(img).shape[1]//40
@@ -107,12 +95,12 @@ def box_extraction(img_for_box_extraction_path, cropped_dir_path):
     # Morphological operation to detect verticle lines from an image
     img_temp1 = cv2.erode(img_bin, verticle_kernel, iterations=3)
     verticle_lines_img = cv2.dilate(img_temp1, verticle_kernel, iterations=3)
-    # cv2.imwrite("./test/verticle_lines.jpg",verticle_lines_img)
+    # cv2.imwrite('./test/verticle_lines.jpg',verticle_lines_img)
 
     # Morphological operation to detect horizontal lines from an image
     img_temp2 = cv2.erode(img_bin, hori_kernel, iterations=3)
     horizontal_lines_img = cv2.dilate(img_temp2, hori_kernel, iterations=3)
-    # cv2.imwrite("./test/horizontal_lines.jpg",horizontal_lines_img)
+    # cv2.imwrite('./test/horizontal_lines.jpg',horizontal_lines_img)
 
     # Weighting parameters, this will decide the quantity of an image to be added to make a new image.
     alpha = 0.5
@@ -124,14 +112,14 @@ def box_extraction(img_for_box_extraction_path, cropped_dir_path):
 
     # For Debugging
     # Enable this line to see verticle and horizontal lines in the image which is used to find boxes
-    # cv2.imwrite("./test/img_final_bin.jpg", img_final_bin)
+    # cv2.imwrite('./test/img_final_bin.jpg', img_final_bin)
     # Find contours for image, which will detect all the boxes
     contours, hierarchy = cv2.findContours(img_final_bin, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
     # Sort all the contours by left to right.
-    (contours, boundingBoxes) = sort_contours(contours, method="left-to-right")
+    (contours, boundingBoxes) = sort_contours(contours, method='left-to-right')
         # Sort all the contours by top to bottom.
-    (contours, boundingBoxes) = sort_contours(contours, method="top-to-bottom")
+    (contours, boundingBoxes) = sort_contours(contours, method='top-to-bottom')
 
     idx = 0
     # Need these threshold to get just each individual character square.
@@ -141,17 +129,30 @@ def box_extraction(img_for_box_extraction_path, cropped_dir_path):
     for c in contours:
         # Returns the location and width,height for every contour
         x, y, w, h = cv2.boundingRect(c)
-        # If the box is essentially a square, then only save it as a box in "characters/" folder.
+        # If the box is essentially a square, then only save it as a box in 'characters/' folder.
         if (abs(w - h) < square_threshold):
             idx += 1
             new_img = img[y:y+h, x:x+w]
-            cv2.imwrite(cropped_dir_path + str(idx) + '.png', new_img)
-            text = detect_text(cropped_dir_path + str(idx) + '.png')
-            print(text)
+
+            cv2.imwrite(cropped_dir_path + str(idx) + '.png', new_img) # Save the image
+
+            new_img = cv2.imread(cropped_dir_path + str(idx) + '.png')
+            gray = cv2.cvtColor(new_img, cv2.COLOR_BGR2GRAY)
+            gray = 255*(gray < 128).astype(np.uint8)
+            coords = cv2.findNonZero(gray)
+            x, y, w, h = cv2.boundingRect(coords)
+            rect = new_img[y:y+h, x:x+w]
+            padded_img = cv2.copyMakeBorder(rect, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=[255,255,255])
+
+            cv2.imwrite(cropped_dir_path + str(idx) + '.png', padded_img)
+
+            text = pytesseract.image_to_string(Image.open(cropped_dir_path + str(idx) + '.png'), lang='chi_sim')
+
+            print('Extracted text {} from image ({} chars).'.format(text, len(text)))
 
     # For Debugging
     # Enable this line to see all contours.
     # cv2.drawContours(img, contours, -1, (0, 0, 255), 3)
-    # cv2.imwrite("./temp/img_contour.jpg", img)
+    # cv2.imwrite('./temp/img_contour.jpg', img)
 
-box_extraction("en_test-multi-blank.png", "./characters/")
+box_extraction('./text/zh_serif_test-multi-blank_small.png', './characters/')
